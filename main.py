@@ -5,91 +5,125 @@ import os
 import random
 from datetime import datetime
 
+# ================= CẤU HÌNH (BẠN CHỈNH Ở ĐÂY) =================
+# Khung giờ được phép đăng bài (Ví dụ: từ 7h sáng đến 22h đêm)
+GIO_BAT_DAU = 7
+GIO_KET_THUC = 22
+
+# Số lần kết bạn tối đa trong một ngày
+MAX_ADD_FRIEND = 5
+
+# Kho nội dung tiếng Việt (Bạn có thể thêm tùy ý)
+DANH_NGON_VN = [
+    "Không có gì quý hơn độc lập tự do.",
+    "Muốn đi nhanh hãy đi một mình, muốn đi xa hãy đi cùng nhau.",
+    "Hạnh phúc không phải là đích đến, mà là hành trình chúng ta đang đi.",
+    "Đừng cúi đầu, vương miện sẽ rơi. Hãy ngẩng cao đầu và bước tiếp.",
+    "Thất bại là mẹ thành công.",
+    "Sống là phải biết cho đi, đâu chỉ nhận riêng mình.",
+    "Cảm ơn đời mỗi sớm mai thức dậy, ta có thêm ngày nữa để yêu thương.",
+    "Kiên nhẫn là cây đắng nhưng quả của nó lại rất ngọt.",
+    "Hãy sống như một đóa hoa, vươn mình tỏa ngát hương thơm.",
+    "Đừng đợi may mắn, hãy tự tạo ra cơ hội cho chính mình.",
+    "Cười nhiều lên, may mắn tự nhiên sẽ đến!",
+    "Chỉ cần bản thân cố gắng, trời xanh sẽ an bài.",
+    "Bình yên là khi lòng không chứa chấp muộn phiền.",
+]
+
+# ================= CODE XỬ LÝ (KHÔNG CẦN SỬA) =================
+
 class FBAssistant:
     def __init__(self, cookie):
         self.cookie = cookie
         self.headers = {
             'cookie': cookie,
             'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36',
-            'accept-language': 'vi-VN,vi;q=0.9,fr-FR;q=0.8,fr;q=0.7,en-US;q=0.6,en;q=0.5'
+            'accept-language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7'
         }
         self.base_url = "https://mbasic.facebook.com"
 
-    # --- HÀM CHECK LIVE MỚI (CHÍNH XÁC HƠN) ---
     def check_live(self):
-        # Bước 1: Kiểm tra nhanh trong chuỗi cookie có ID người dùng chưa
-        if 'c_user' not in self.cookie:
-            return False
-            
+        if 'c_user' not in self.cookie: return False
         try:
-            # Bước 2: Truy cập trang chủ
             res = requests.get(f'{self.base_url}/home.php', headers=self.headers, allow_redirects=True)
-            
-            # Bước 3: Nếu bị chuyển hướng sang trang Login hoặc Checkpoint -> DIE
-            if 'login.php' in res.url or 'checkpoint' in res.url:
-                return False
-            
-            # Bước 4: Kiểm tra xem có khung đăng bài hoặc nút đăng xuất không -> LIVE
-            if 'composer/mbasic' in res.text or 'mbasic_logout_button' in res.text:
-                return True
-            
-            # Nếu URL vẫn là home.php hoặc profile thì coi như Live
+            if 'login.php' in res.url or 'checkpoint' in res.url: return False
             return True
-        except:
-            return False
+        except: return False
 
-    def get_random_quote(self):
-        try:
-            # Lấy câu nói từ API miễn phí
-            response = requests.get("https://zenquotes.io/api/quotes")
-            data = response.json()
-            quote_data = random.choice(data)
-            return f"{quote_data['q']} — {quote_data['a']}"
-        except:
-            # Dự phòng nếu mất mạng hoặc lỗi API
-            return "Hôm nay là một ngày tuyệt vời để bắt đầu! #motivation"
+    def get_vietnamese_quote(self):
+        # Lấy ngẫu nhiên 1 câu từ danh sách trên
+        return random.choice(DANH_NGON_VN)
 
     def auto_post(self, content):
-        print(f"[...] Đang chuẩn bị đăng bài: {content[:30]}...")
+        print(f"[...] Đang tìm nơi đăng bài...")
         try:
             res = requests.get(self.base_url, headers=self.headers)
             soup = BeautifulSoup(res.text, 'html.parser')
             
-            # Tìm form đăng bài
-            form = soup.find('form', action=lambda x: x and '/composer/mbasic/' in x)
+            # --- THUẬT TOÁN TÌM FORM MỚI (FIX LỖI) ---
+            # Cách 1: Tìm form có chứa input nhập liệu (xc_message)
+            form = None
+            target_input = soup.find('input', {'name': 'xc_message'})
+            
+            if target_input:
+                form = target_input.find_parent('form')
+            else:
+                # Cách 2: Nếu không thấy input, tìm link "Đăng status" để click vào
+                print("[!] Không thấy khung ở trang chủ, đang tìm nút chuyển hướng...")
+                composer_link = soup.find('a', href=lambda x: x and '/composer/' in x)
+                if composer_link:
+                    # Vào trang soạn thảo riêng
+                    res = requests.get(self.base_url + composer_link['href'], headers=self.headers)
+                    soup = BeautifulSoup(res.text, 'html.parser')
+                    target_input = soup.find('input', {'name': 'xc_message'})
+                    if target_input:
+                        form = target_input.find_parent('form')
+
             if not form:
-                print("[!] Không tìm thấy khung đăng bài. Có thể nick bị chặn đăng.")
+                print("[!] Bó tay: Không tìm thấy khung đăng bài (Có thể nick bị chặn đăng).")
                 return
 
-            action_url = self.base_url + form['action']
+            # Lấy URL xử lý form
+            action_url = self.base_url + form.get('action', '')
+            
+            # Lấy tất cả dữ liệu ẩn cần thiết (fb_dtsg, jazoest...)
             data = {}
             for inp in form.find_all('input'):
                 if inp.get('name'):
                     data[inp.get('name')] = inp.get('value', '')
             
+            # Chèn nội dung của mình vào
             data['xc_message'] = content
             data['view_post'] = 'Đăng'
             
-            requests.post(action_url, data=data, headers=self.headers)
-            print(f"[✓] Đã đăng bài thành công lúc {datetime.now().strftime('%H:%M:%S')}!")
-        except Exception as e:
-            print(f"[×] Lỗi đăng bài: {e}")
+            # Gửi bài
+            post_req = requests.post(action_url, data=data, headers=self.headers)
+            
+            if post_req.status_code == 200:
+                print(f"[✓] ĐĂNG BÀI THÀNH CÔNG: \"{content[:30]}...\"")
+            else:
+                print(f"[×] Đăng thất bại. Mã lỗi: {post_req.status_code}")
 
-    def auto_add_friends(self, limit=5):
-        print(f"[...] Đang tìm kiếm bạn bè (Limit: {limit})...")
+        except Exception as e:
+            print(f"[×] Lỗi code đăng bài: {e}")
+
+    def auto_add_friends(self, limit=3):
+        print(f"[...] Đang quét gợi ý kết bạn...")
         try:
             res = requests.get(f'{self.base_url}/friends/center/suggestions/', headers=self.headers)
             soup = BeautifulSoup(res.text, 'html.parser')
-            links = soup.find_all('a', text='Thêm bạn bè')
+            links = soup.find_all('a', href=lambda x: x and 'confirm=' in x) # Tìm link chứa 'confirm=' là nút kết bạn
             
             if not links:
-                print("[!] Không tìm thấy gợi ý kết bạn nào.")
+                print("[!] Không có gợi ý kết bạn nào.")
                 return
 
-            for i, link in enumerate(links[:limit]):
+            count = 0
+            for link in links:
+                if count >= limit: break
                 requests.get(self.base_url + link['href'], headers=self.headers)
-                print(f"[✓] Đã gửi lời mời kết bạn thứ {i+1}")
-                # Nghỉ ngẫu nhiên 5-10 giây giữa mỗi lần bấm
+                print(f"[✓] Đã gửi lời mời tới 1 người bạn mới.")
+                count += 1
                 time.sleep(random.randint(5, 10))
         except Exception as e:
             print(f"[×] Lỗi kết bạn: {e}")
@@ -97,9 +131,9 @@ class FBAssistant:
 def auto_pilot(bot):
     os.system('clear')
     print("="*40)
-    print("   AUTO-PILOT MODE: TREO MÁY 24/7")
+    print("   AUTO-PILOT: TREO MÁY NUÔI NICK VIỆT")
     print("="*40)
-    print("[*] Bot sẽ tự động đăng bài 1 lần/ngày và kết bạn dạo.")
+    print(f"[*] Cấu hình: Hoạt động từ {GIO_BAT_DAU}h - {GIO_KET_THUC}h")
     print("[*] Nhấn Ctrl + C để dừng.\n")
     
     last_posted_date = ""
@@ -108,71 +142,74 @@ def auto_pilot(bot):
         try:
             now = datetime.now()
             today = now.strftime("%Y-%m-%d")
-            current_hour = now.hour
+            h = now.hour
 
-            # --- TÁC VỤ 1: ĐĂNG BÀI (1 lần/ngày vào 8h-20h) ---
-            if today != last_posted_date:
-                # Random giờ đăng bài để không bị lộ
-                target_hour = random.randint(8, 20)
+            # 1. KIỂM TRA GIỜ HOẠT ĐỘNG
+            if GIO_BAT_DAU <= h <= GIO_KET_THUC:
                 
-                # Nếu giờ hiện tại >= giờ mục tiêu thì đăng
-                if current_hour >= target_hour:
-                    quote = bot.get_random_quote()
-                    bot.auto_post(quote)
-                    last_posted_date = today # Đánh dấu xong nhiệm vụ hôm nay
+                # --- NHIỆM VỤ ĐĂNG BÀI (1 ngày 1 lần) ---
+                if today != last_posted_date:
+                    # Chọn giờ đẹp ngẫu nhiên trong khoảng hoạt động
+                    gio_vang = random.randint(GIO_BAT_DAU, GIO_KET_THUC)
+                    
+                    if h >= gio_vang:
+                        print(f"\n[{now.strftime('%H:%M')}] >> Tới giờ đăng bài!")
+                        content = bot.get_vietnamese_quote()
+                        bot.auto_post(content)
+                        last_posted_date = today
+                    else:
+                        print(f"[{now.strftime('%H:%M')}] Chưa tới giờ đăng bài (Dự kiến: {gio_vang}h).")
                 else:
-                    print(f"[{now.strftime('%H:%M')}] Chưa tới giờ đăng bài (Dự kiến: {target_hour}h).")
-            else:
-                print(f"[{now.strftime('%H:%M')}] Hôm nay đã đăng bài rồi.")
+                    print(f"[{now.strftime('%H:%M')}] Hôm nay đã hoàn thành chỉ tiêu đăng bài.")
 
-            # --- TÁC VỤ 2: KẾT BẠN (Hoạt động từ 7h-22h) ---
-            if 7 <= current_hour <= 22:
-                # Tỷ lệ 30% sẽ đi kết bạn trong mỗi lần thức dậy
-                if random.choice([True, False, False]): 
+                # --- NHIỆM VỤ KẾT BẠN (Rải rác) ---
+                # Random xác suất 20% mỗi lần thức dậy sẽ đi kết bạn
+                if random.randint(1, 10) <= 2:
+                    print(f"[{now.strftime('%H:%M')}] >> Rảnh rỗi, đi tìm bạn bè...")
                     bot.auto_add_friends(limit=random.randint(1, 2))
-                else:
-                    print(f"[{now.strftime('%H:%M')}] Lần này bỏ qua kết bạn cho giống người thật.")
 
-            # --- TÁC VỤ 3: NGỦ ĐÔNG ---
-            # Ngủ ngẫu nhiên từ 30 đến 60 phút
-            wait_minutes = random.randint(30, 60)
-            print(f"[#] Bot đi ngủ {wait_minutes} phút...")
-            time.sleep(wait_minutes * 60)
-            
+            else:
+                print(f"[{now.strftime('%H:%M')}] Ngoài giờ hoạt động. Bot đang ngủ đông.")
+
+            # --- NGHỈ NGƠI ---
+            wait_min = random.randint(45, 90) # Nghỉ lâu hơn (45-90 phút) để an toàn
+            print(f"[#] Nghỉ {wait_min} phút...")
+            time.sleep(wait_min * 60)
+
         except KeyboardInterrupt:
-            print("\n[!] Đã dừng bot.")
+            print("\n[!] Dừng Tool.")
             break
         except Exception as e:
-            print(f"[×] Lỗi hệ thống: {e}. Thử lại sau 10 phút.")
+            print(f"[×] Lỗi mạng/Hệ thống: {e}. Thử lại sau 10p.")
             time.sleep(600)
 
 def main():
     os.system('clear')
     print("="*35)
-    print("    FB AUTO TOOL (FIXED LOGIN)")
+    print("    TOOL NUÔI FB - PHIÊN BẢN 3.0")
     print("="*35)
-    cookie = input("[!] Nhập Cookie Facebook: ")
+    
+    # Đoạn này để fix lỗi nhập cookie bị dính ký tự xuống dòng
+    cookie_raw = input("[!] Nhập Cookie Facebook: ")
+    cookie = cookie_raw.replace("\n", "").strip()
+    
     bot = FBAssistant(cookie)
 
-    print("\n[?] Đang kiểm tra trạng thái Cookie...")
+    print("\n[?] Đang kiểm tra Cookie...")
     if bot.check_live():
-        print("[✓] Cookie LIVE! Đăng nhập thành công.")
-        time.sleep(1)
-        print("\n--- MENU ---")
-        print("1. Chạy Auto-Pilot (Treo máy tự động)")
-        print("2. Test đăng 1 bài ngay lập tức")
-        print("3. Test kết bạn ngay lập tức")
-        choice = input("[?] Nhập lựa chọn: ")
-
+        print(f"[✓] Đăng nhập thành công! (Giờ hệ thống: {datetime.now().hour}h)")
+        print("\n1. Treo máy tự động (Auto-Pilot)")
+        print("2. Test đăng 1 status Tiếng Việt ngay")
+        
+        choice = input("[?] Chọn: ")
         if choice == '1':
             auto_pilot(bot)
         elif choice == '2':
-            bot.auto_post(bot.get_random_quote())
-        elif choice == '3':
-            bot.auto_add_friends(limit=3)
+            content = bot.get_vietnamese_quote()
+            print(f"[i] Nội dung sẽ đăng: {content}")
+            bot.auto_post(content)
     else:
-        print("\n[×] Cookie DIE hoặc Sai định dạng!")
-        print("Lưu ý: Hãy copy đầy đủ chuỗi cookie bao gồm 'c_user=...; xs=...'")
+        print("\n[×] Cookie lỗi! Hãy lấy lại cookie mới.")
 
 if __name__ == "__main__":
     main()
