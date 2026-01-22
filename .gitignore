@@ -1,0 +1,23 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Cấu hình môi trường (Nếu bạn lưu cookie vào file .env)
+.env
+.venv
+env/
+venv/
+ENV/
+
+# File nhật ký (logs)
+*.log
+
+# File tạm của hệ thống
+.DS_Store
+Thumbs.db
+
+# File lưu dữ liệu tạm thời (nếu bạn có tạo file txt lưu cookie)
+cookie.txt
+token.txt
+
